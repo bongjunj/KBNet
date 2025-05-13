@@ -1,6 +1,7 @@
 import os
 import yaml
 import argparse
+import time
 
 import numpy as np
 from tqdm import tqdm
@@ -72,18 +73,32 @@ img = sio.loadmat(filepath)
 Inoisy = np.float32(np.array(img['ValidationNoisyBlocksSrgb']))
 Inoisy /= 255.
 restored = np.zeros_like(Inoisy)
+
+torch.cuda.reset_peak_memory_stats()
+latencies = []
+
 with torch.no_grad():
     for i in tqdm(range(40)):
         for k in range(32):
             noisy_patch = torch.from_numpy(Inoisy[i, k, :, :, :]).unsqueeze(0).permute(0, 3, 1, 2).cuda()
+
+            # measure start
+            torch.cuda.synchronize()
+            t0 = time.perf_counter()
+
             restored_patch = model_restoration(noisy_patch)
+
+            torch.cuda.synchronize()
+            t1 = time.perf_counter()
+            latencies.append((t1 - t0) * 1000)   # ms
+
             restored_patch = torch.clamp(restored_patch, 0, 1).cpu().detach().permute(0, 2, 3, 1).squeeze(0)
             restored[i, k, :, :, :] = restored_patch
 
             # save psrn and ssim
             # print(type(restored_patch))  # torch.Tensor
-            res['psnr'].append(compare_psnr(gt[i, k], restored_patch.numpy()))
-            res['ssim'].append(compare_ssim(gt[i, k], restored_patch.numpy(), multichannel=True))
+            res['psnr'].append(compare_psnr(gt[i, k], restored_patch.numpy(), data_range=1.0))
+            res['ssim'].append(compare_ssim(gt[i, k], restored_patch.numpy(), channel_axis=-1, data_range=1.0))
 
             if args.save_images:
                 save_file = os.path.join(result_dir_png,
@@ -91,6 +106,12 @@ with torch.no_grad():
                 utils_tool.save_img(save_file, img_as_ubyte(restored_patch))
 
 print(f'{cfg_name} psnr %.2f ssim %.3f' % (np.mean(res['psnr']), np.mean(res['ssim'])))
+
+mean_latency = sum(latencies) / len(latencies)
+peak_mem = torch.cuda.max_memory_allocated() / (1024**2)  # MiB
+
+print(f"Mean latency: {mean_latency:.2f} ms (±{np.std(latencies):.2f})")
+print(f"Peak GPU memory: {peak_mem:.1f} MiB")
 
 # save denoised data
 sio.savemat(os.path.join(result_dir_mat, 'Idenoised.mat'), {"Idenoised": restored, })

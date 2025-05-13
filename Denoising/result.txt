@@ -1,0 +1,6 @@
+test-real-denoise
+
+sidd psnr 40.35 ssim 0.920
+Mean latency: 240.29 ms (±18.21)
+Peak GPU memory: 1520.3 MiB
+
