@@ -50,6 +50,16 @@ model_restoration.cuda()
 model_restoration = nn.DataParallel(model_restoration)
 model_restoration.eval()
 
+from ptflops import get_model_complexity_info
+m = model_restoration.module if hasattr(model_restoration, "module") else model_restoration
+macs, params = get_model_complexity_info(
+    m, (3, 256, 256),
+    as_strings=True,  # so you get “X.XX GMac”, “Y.YY M”
+    print_per_layer_stat=False,
+    verbose=False
+)
+print(f"===>  MACs: {macs} | Params: {params}")
+
 ########################
 
 result_dir_mat = os.path.join(args.result_dir, 'mat')
